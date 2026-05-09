@@ -4,7 +4,7 @@ import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 import WebSocket from 'ws';
 
-console.log('=== BOT BUILD ID === 2026-05-09-1 ===');
+console.log('=== BOT BUILD ID === 2026-05-09-2 ===');
 
 const PORT       = process.env.PORT || 3000;
 const HELIUS_KEY = process.env.HELIUS_API_KEY;
@@ -297,6 +297,8 @@ function startWs() {
 
       if (!feePayer || !signature) return;
 
+      console.log('[WS] feePayer, signature', feePayer, signature);
+
       let nativeChange = null;
       if (Array.isArray(meta.preBalances) && Array.isArray(meta.postBalances)) {
         const pre  = meta.preBalances[0];
@@ -339,7 +341,7 @@ function startWs() {
 
       await handleHeliusEvent(eventShape);
     } catch (err) {
-      console.error('[WS] message error', err.message);
+      console.error('[WS] message error', err); // FULL error, not just .message
     }
   });
 
