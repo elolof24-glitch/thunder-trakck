@@ -144,11 +144,20 @@ function buildComponents(mint, sig) {
 
 async function handleHeliusEvent(events) {
   if (!Array.isArray(events)) events = [events];
+  console.log('[HANDLE] events length', events.length);
+
   for (const event of events) {
-    if (event.type !== 'SWAP') continue;
+    if (event.type !== 'SWAP') {
+      console.log('[HANDLE] skip non-SWAP type', event.type);
+      continue;
+    }
+
     const wallet = event.feePayer;
     const sig    = event.signature;
-    if (!wallet) continue;
+    if (!wallet) {
+      console.log('[HANDLE] missing wallet, skipping');
+      continue;
+    }
 
     let mint = null;
     let swapSol = null;
@@ -163,8 +172,14 @@ async function handleHeliusEvent(events) {
       if (nativeDelta) swapSol = Math.abs(nativeDelta / 1e9).toFixed(3);
     }
 
-    if (!mint) continue;
-    if (isDupe(wallet, mint)) continue;
+    if (!mint) {
+      console.log('[HANDLE] no mint found for', wallet.slice(0,8), sig?.slice(0,8));
+      continue;
+    }
+    if (isDupe(wallet, mint)) {
+      console.log('[HANDLE] dupe skip for', wallet.slice(0,8), mint.slice(0,8));
+      continue;
+    }
 
     console.log(`[TEST] wallet=${wallet.slice(0,8)}… mint=${mint.slice(0,8)}…`);
 
@@ -173,8 +188,9 @@ async function handleHeliusEvent(events) {
     const components = buildComponents(mint, sig);
     const embed      = buildEmbed({ wallet, token, mint, swapSol, profile });
 
+    console.log('[DISCORD] about to send alert');
     if (hook) await hook.send({ embeds: [embed], components }).catch(console.error);
-    console.log(`[TEST] alert sent!`);
+    console.log('[TEST] alert sent!');
   }
 }
 
@@ -208,7 +224,7 @@ function startWs() {
             'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG',
             // Meteora DBC
             'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN',
-            // TODO: replace this placeholder with the real Pump.fun swap/curve program ID
+            // TODO: add Pump.fun swap/curve program ID once confirmed
             // 'PUMPFUN_PROGRAM_ID_HERE'
           ],
         },
@@ -265,8 +281,10 @@ function startWs() {
         ...(meta.preTokenBalances || []),
         ...(meta.postTokenBalances || []),
       ];
+      console.log('[WS] tokenBalances length', tokenBalances.length);
       const nonSol = tokenBalances.find(b => b.mint && b.mint !== SOL_MINT);
       if (nonSol) mint = nonSol.mint;
+      console.log('[WS] derived mint', mint);
 
       if (!mint) return;
 
