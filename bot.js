@@ -169,13 +169,15 @@ function buildComponents(mint, sig) {
 
 async function handleHeliusEvent(events) {
   if (!Array.isArray(events)) events = [events];
+  console.log('>>>> ENTER handleHeliusEvent', events.length);
   console.log('[HANDLE] events length', events.length);
 
   for (const event of events) {
-    if (event.type !== 'SWAP') {
-      console.log('[HANDLE] skip non-SWAP type', event.type);
-      continue;
-    }
+    // TEMP: treat everything as SWAP for debugging
+    // if (event.type !== 'SWAP') {
+    //   console.log('[HANDLE] skip non-SWAP type', event.type);
+    //   continue;
+    // }
 
     const wallet = event.feePayer;
     const sig    = event.signature;
@@ -188,19 +190,22 @@ async function handleHeliusEvent(events) {
     let swapSol = null;
     const swap = event.swap;
 
-    if (swap?.tokenInputs?.length && swap?.tokenOutputs?.length) {
-      const outMint = swap.tokenOutputs[0]?.mint;
-      const inMint  = swap.tokenInputs[0]?.mint;
-      if (outMint && outMint !== SOL_MINT)    mint = outMint;
-      else if (inMint && inMint !== SOL_MINT) mint = inMint;
+    if (swap) {
+      const outMint = swap.tokenOutputs?.[0]?.mint;
+      const inMint  = swap.tokenInputs?.[0]?.mint;
+      mint = outMint || inMint || SOL_MINT;
       const nativeDelta = event.accountData?.find(a => a.account === wallet)?.nativeBalanceChange;
       if (nativeDelta) swapSol = Math.abs(nativeDelta / 1e9).toFixed(3);
+    } else {
+      mint = SOL_MINT;
     }
 
-    if (!mint) {
-      console.log('[HANDLE] no mint found for', wallet.slice(0,8), sig?.slice(0,8));
-      continue;
-    }
+    // TEMP: do not drop on !mint while debugging
+    // if (!mint) {
+    //   console.log('[HANDLE] no mint found for', wallet.slice(0,8), sig?.slice(0,8));
+    //   continue;
+    // }
+
     if (isDupe(wallet, mint)) {
       console.log('[HANDLE] dupe skip for', wallet.slice(0,8), mint.slice(0,8));
       continue;
@@ -210,7 +215,7 @@ async function handleHeliusEvent(events) {
 
     const profile    = await getWalletProfile(wallet);
     const token      = await getTokenInfo(mint);
-    const components = buildComponents(mint, sig);
+    const components = buildComponents(mint, sig || 'N/A');
     const embed      = buildEmbed({ wallet, token, mint, swapSol, profile });
 
     console.log('[DISCORD] about to send alert');
@@ -310,7 +315,8 @@ function startWs() {
       if (nonSol) mint = nonSol.mint;
       console.log('[WS] derived mint', mint);
 
-      if (!mint) return;
+      // DEBUG: always emit an event
+      const effectiveMint = mint || SOL_MINT;
 
       const eventShape = {
         type: 'SWAP',
@@ -318,7 +324,7 @@ function startWs() {
         signature,
         swap: {
           tokenInputs: [],
-          tokenOutputs: [{ mint }],
+          tokenOutputs: [{ mint: effectiveMint }],
         },
         accountData:
           nativeChange != null
@@ -326,9 +332,9 @@ function startWs() {
             : [],
       };
 
-      console.log('[WS] emitting event', {
+      console.log('[WS] emitting event (debug)', {
         feePayer: feePayer.slice(0, 8),
-        mint: mint.slice(0, 8),
+        mint: effectiveMint.slice(0, 8),
       });
 
       await handleHeliusEvent(eventShape);
@@ -361,7 +367,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ TEST MODE — no filters, every swap fires`);
+  console.log(`✅ TEST MODE — EXTREME DEBUG (every tx tries to alert)`);
   console.log(`   Discord bot token: ${DISCORD_BOT_TOKEN ? '✓' : '✗ NOT SET'}`);
   console.log(`   Discord channel:   ${DISCORD_CHANNEL_ID || '✗ NOT SET'}`);
   startWs();
