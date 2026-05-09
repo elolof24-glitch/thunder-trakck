@@ -1,14 +1,15 @@
 import 'dotenv/config';
 import express from 'express';
-import { WebhookClient, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 import WebSocket from 'ws';
 
-const PORT            = process.env.PORT || 3000;
-const DISCORD_FRESH   = process.env.DISCORD_WEBHOOK_FRESH;
-const DISCORD_DORMANT = process.env.DISCORD_WEBHOOK_DORMANT;
-const HELIUS_KEY      = process.env.HELIUS_API_KEY;
-const SOL_MINT        = 'So11111111111111111111111111111111111111112';
+const PORT       = process.env.PORT || 3000;
+const HELIUS_KEY = process.env.HELIUS_API_KEY;
+const SOL_MINT   = 'So11111111111111111111111111111111111111112';
+
+const DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 const recentlySeen = new Map();
 function isDupe(wallet, mint) {
@@ -19,11 +20,35 @@ function isDupe(wallet, mint) {
   return false;
 }
 
-const hook = DISCORD_FRESH
-  ? new WebhookClient({ url: DISCORD_FRESH })
-  : DISCORD_DORMANT
-    ? new WebhookClient({ url: DISCORD_DORMANT })
-    : null;
+// ---- Discord bot client ----
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+});
+
+let alertChannel = null;
+
+client.once('ready', async () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+  if (DISCORD_CHANNEL_ID) {
+    try {
+      alertChannel = await client.channels.fetch(DISCORD_CHANNEL_ID);
+      console.log('✅ Alert channel fetched');
+    } catch (err) {
+      console.error('Failed to fetch alert channel', err.message);
+    }
+  } else {
+    console.warn('No DISCORD_CHANNEL_ID set');
+  }
+});
+
+if (DISCORD_BOT_TOKEN) {
+  client.login(DISCORD_BOT_TOKEN).catch(err => {
+    console.error('Discord login failed:', err.message);
+  });
+} else {
+  console.error('No DISCORD_BOT_TOKEN set');
+}
+// ----------------------------
 
 async function getTokenInfo(mint) {
   try {
@@ -189,8 +214,12 @@ async function handleHeliusEvent(events) {
     const embed      = buildEmbed({ wallet, token, mint, swapSol, profile });
 
     console.log('[DISCORD] about to send alert');
-    if (hook) await hook.send({ embeds: [embed], components }).catch(console.error);
-    console.log('[TEST] alert sent!');
+    if (alertChannel) {
+      await alertChannel.send({ embeds: [embed], components }).catch(console.error);
+      console.log('[TEST] alert sent via bot!');
+    } else {
+      console.warn('[DISCORD] No alertChannel set, cannot send');
+    }
   }
 }
 
@@ -218,14 +247,9 @@ function startWs() {
           failed: false,
           vote: false,
           accountInclude: [
-            // Raydium AMM v2
             '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
-            // Meteora DAMM v2
             'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG',
-            // Meteora DBC
             'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN',
-            // TODO: add Pump.fun swap/curve program ID once confirmed
-            // 'PUMPFUN_PROGRAM_ID_HERE'
           ],
         },
         {
@@ -338,8 +362,7 @@ app.post('/webhook', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ TEST MODE — no filters, every swap fires`);
-  console.log(`   Webhook: ${hook ? '✓' : '✗ NOT SET'}`);
-
-  // Start Enhanced WebSocket listener
+  console.log(`   Discord bot token: ${DISCORD_BOT_TOKEN ? '✓' : '✗ NOT SET'}`);
+  console.log(`   Discord channel:   ${DISCORD_CHANNEL_ID || '✗ NOT SET'}`);
   startWs();
 });
