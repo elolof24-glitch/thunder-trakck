@@ -178,7 +178,7 @@ async function handleHeliusEvent(events) {
   }
 }
 
-// ---- NEW: Enhanced WebSocket listener ----
+// ---- Enhanced WebSocket listener ----
 function startWs() {
   if (!HELIUS_KEY) {
     console.error('No HELIUS_API_KEY set in env, cannot start WS');
@@ -217,7 +217,10 @@ function startWs() {
 
   ws.on('message', async (raw) => {
     try {
-      const msg = JSON.parse(raw.toString());
+      const text = raw.toString();
+      console.log('[WS] raw message:', text.slice(0, 300));   // debug preview
+
+      const msg = JSON.parse(text);
 
       if (msg.method !== 'transactionNotification') {
         return;
@@ -294,7 +297,7 @@ function startWs() {
     }, 3000);
   });
 }
-// ------------------------------------------
+// -------------------------------------
 
 const app = express();
 app.use(express.json());
