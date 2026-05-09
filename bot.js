@@ -201,6 +201,16 @@ function startWs() {
         {
           failed: false,
           vote: false,
+          accountInclude: [
+            // Raydium AMM v2
+            '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+            // Meteora DAMM v2
+            'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG',
+            // Meteora DBC
+            'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN',
+            // TODO: replace this placeholder with the real Pump.fun swap/curve program ID
+            // 'PUMPFUN_PROGRAM_ID_HERE'
+          ],
         },
         {
           commitment: 'confirmed',
@@ -218,7 +228,7 @@ function startWs() {
   ws.on('message', async (raw) => {
     try {
       const text = raw.toString();
-      console.log('[WS] raw message:', text.slice(0, 300));   // debug preview
+      console.log('[WS] raw message:', text.slice(0, 300));
 
       const msg = JSON.parse(text);
 
