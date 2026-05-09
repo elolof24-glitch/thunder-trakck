@@ -4,6 +4,8 @@ import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 import WebSocket from 'ws';
 
+console.log('=== BOT BUILD ID === 2026-05-09-1 ===');
+
 const PORT       = process.env.PORT || 3000;
 const HELIUS_KEY = process.env.HELIUS_API_KEY;
 const SOL_MINT   = 'So11111111111111111111111111111111111111112';
@@ -33,6 +35,17 @@ client.once('ready', async () => {
     try {
       alertChannel = await client.channels.fetch(DISCORD_CHANNEL_ID);
       console.log('✅ Alert channel fetched');
+
+      // STARTUP TEST PING
+      console.log('🔔 Sending startup test message');
+      try {
+        await alertChannel.send('Startup test ping');
+        console.log('🔔 Startup test message sent');
+      } catch (err) {
+        console.error('❌ Failed to send startup test message', err);
+      }
+      // END STARTUP TEST PING
+
     } catch (err) {
       console.error('Failed to fetch alert channel', err.message);
     }
@@ -173,12 +186,6 @@ async function handleHeliusEvent(events) {
   console.log('[HANDLE] events length', events.length);
 
   for (const event of events) {
-    // TEMP: treat everything as SWAP for debugging
-    // if (event.type !== 'SWAP') {
-    //   console.log('[HANDLE] skip non-SWAP type', event.type);
-    //   continue;
-    // }
-
     const wallet = event.feePayer;
     const sig    = event.signature;
     if (!wallet) {
@@ -200,12 +207,6 @@ async function handleHeliusEvent(events) {
       mint = SOL_MINT;
     }
 
-    // TEMP: do not drop on !mint while debugging
-    // if (!mint) {
-    //   console.log('[HANDLE] no mint found for', wallet.slice(0,8), sig?.slice(0,8));
-    //   continue;
-    // }
-
     if (isDupe(wallet, mint)) {
       console.log('[HANDLE] dupe skip for', wallet.slice(0,8), mint.slice(0,8));
       continue;
@@ -223,7 +224,7 @@ async function handleHeliusEvent(events) {
       await alertChannel.send({ embeds: [embed], components }).catch(console.error);
       console.log('[TEST] alert sent via bot!');
     } else {
-      console.warn('[DISCORD] No alertChannel set, cannot send');
+      console.warn('[DISCORD] No alertChannel set');
     }
   }
 }
@@ -315,7 +316,6 @@ function startWs() {
       if (nonSol) mint = nonSol.mint;
       console.log('[WS] derived mint', mint);
 
-      // DEBUG: always emit an event
       const effectiveMint = mint || SOL_MINT;
 
       const eventShape = {
