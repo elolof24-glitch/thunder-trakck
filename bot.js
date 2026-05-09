@@ -1,8 +1,8 @@
-
 import 'dotenv/config';
 import express from 'express';
 import { WebhookClient, EmbedBuilder } from 'discord.js';
 import fetch from 'node-fetch';
+import WebSocket from 'ws';
 
 const PORT            = process.env.PORT || 3000;
 const DISCORD_FRESH   = process.env.DISCORD_WEBHOOK_FRESH;
@@ -118,14 +118,14 @@ function buildEmbed({ wallet, token, mint, swapSol, profile }) {
       { name: '🪙 Token', value: '\u200b', inline: false },
       { name: 'MC',       value: fmtMcap(token?.mcap),                      inline: true },
       { name: 'Age',      value: tAgeDays != null ? `${tAgeDays}d` : 'N/A', inline: true },
-      { name: 'Contract', value: `\`${mint}\``,                            inline: false },
+      { name: 'Contract', value: `\`${mint}\``,                              inline: false },
       { name: '👛 Wallet', value:
           `[👤 ${shortAddr(wallet)}](https://solscan.io/account/${wallet})\n` +
           `Age ${wAgeDays != null ? wAgeDays + 'd' : '?'} · Tx ${profile?.txCount ?? '?'}\n` +
           `Funded ${profile?.fundedStr ?? '—'}`,
         inline: false },
-      { name: 'SOL Balance', value: solBal,                                inline: true },
-      { name: 'Buy Amount',  value: swapSol ? `${swapSol} SOL` : 'N/A',   inline: true },
+      { name: 'SOL Balance', value: solBal,                                  inline: true },
+      { name: 'Buy Amount',  value: swapSol ? `${swapSol} SOL` : 'N/A',     inline: true },
       { name: 'Dormant',     value: profile?.dormantDays != null ? `${Math.round(profile.dormantDays)}d` : '—', inline: true },
     )
     .setFooter({ text: `${token?.venue || 'pump.fun'} · TEST MODE · ${new Date().toUTCString()}` })
@@ -178,6 +178,124 @@ async function handleHeliusEvent(events) {
   }
 }
 
+// ---- NEW: Enhanced WebSocket listener ----
+function startWs() {
+  if (!HELIUS_KEY) {
+    console.error('No HELIUS_API_KEY set in env, cannot start WS');
+    return;
+  }
+
+  const wsUrl = process.env.HELIUS_WS_URL || `wss://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}`;
+  console.log('[WS] connecting to Helius Enhanced WS:', wsUrl);
+
+  const ws = new WebSocket(wsUrl);
+
+  ws.on('open', () => {
+    console.log('[WS] open, sending transactionSubscribe');
+
+    const sub = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'transactionSubscribe',
+      params: [
+        {
+          failed: false,
+          vote: false,
+        },
+        {
+          commitment: 'confirmed',
+          encoding: 'jsonParsed',
+          maxSupportedTransactionVersion: 0,
+          transactionDetails: 'full',
+        },
+      ],
+    };
+
+    ws.send(JSON.stringify(sub));
+    console.log('[WS] subscription payload sent');
+  });
+
+  ws.on('message', async (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+
+      if (msg.method !== 'transactionNotification') {
+        return;
+      }
+
+      console.log('[WS] tx notification received');
+
+      const result = msg.params?.result;
+      if (!result) return;
+
+      const tx   = result.transaction;
+      const meta = result.meta;
+      if (!tx || !meta) return;
+
+      const feePayer =
+        tx.message?.accountKeys?.[0]?.pubkey || tx.message?.accountKeys?.[0];
+      const signature = tx.signatures?.[0];
+
+      if (!feePayer || !signature) return;
+
+      let nativeChange = null;
+      if (Array.isArray(meta.preBalances) && Array.isArray(meta.postBalances)) {
+        const pre  = meta.preBalances[0];
+        const post = meta.postBalances[0];
+        if (typeof pre === 'number' && typeof post === 'number') {
+          nativeChange = post - pre;
+        }
+      }
+
+      let mint = null;
+      const tokenBalances = [
+        ...(meta.preTokenBalances || []),
+        ...(meta.postTokenBalances || []),
+      ];
+      const nonSol = tokenBalances.find(b => b.mint && b.mint !== SOL_MINT);
+      if (nonSol) mint = nonSol.mint;
+
+      if (!mint) return;
+
+      const eventShape = {
+        type: 'SWAP',
+        feePayer,
+        signature,
+        swap: {
+          tokenInputs: [],
+          tokenOutputs: [{ mint }],
+        },
+        accountData:
+          nativeChange != null
+            ? [{ account: feePayer, nativeBalanceChange: nativeChange }]
+            : [],
+      };
+
+      console.log('[WS] emitting event', {
+        feePayer: feePayer.slice(0, 8),
+        mint: mint.slice(0, 8),
+      });
+
+      await handleHeliusEvent(eventShape);
+    } catch (err) {
+      console.error('[WS] message error', err.message);
+    }
+  });
+
+  ws.on('error', (err) => {
+    console.error('[WS] error', err.message);
+  });
+
+  ws.on('close', (code, reason) => {
+    console.warn('[WS] closed', code, reason?.toString());
+    setTimeout(() => {
+      console.log('[WS] reconnecting…');
+      startWs();
+    }, 3000);
+  });
+}
+// ------------------------------------------
+
 const app = express();
 app.use(express.json());
 app.get('/', (_req, res) => res.json({ status: 'ok', mode: 'TEST — no filters' }));
@@ -190,4 +308,7 @@ app.post('/webhook', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ TEST MODE — no filters, every swap fires`);
   console.log(`   Webhook: ${hook ? '✓' : '✗ NOT SET'}`);
+
+  // Start Enhanced WebSocket listener
+  startWs();
 });
